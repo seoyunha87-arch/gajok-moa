@@ -557,29 +557,21 @@ textarea{resize:vertical;min-height:64px;}
     </div>
   </main>
 
-  <footer class="footer">가족모아 프로토타입 · 모든 데이터는 이 브라우저에만 저장됩니다</footer>
+  <footer class="footer">가족모아 · Supabase로 안전하게 저장·동기화됩니다</footer>
 </div>
 
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script>
 (function(){
 "use strict";
 
-/* ---------------- storage ---------------- */
-const DB_KEY = "famshare.db.v2";
-const SESSION_KEY = "famshare.session.v2";
+/* ---------------- backend ---------------- */
+const SUPABASE_URL = "https://biknpszqapwcrdhxofwd.supabase.co";
+const SUPABASE_ANON_KEY = "sb_publishable_sMeFQKWuZrILIAfDIAGbeQ_e0FKQHac";
+const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-function uid(){ return Math.random().toString(36).slice(2,9) + Date.now().toString(36).slice(-4); }
 function esc(s){ return String(s==null?"":s).replace(/[&<>"']/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
 function todayStr(){ const d=new Date(); return d.toISOString().slice(0,10); }
-
-function loadDB(){
-  let raw = localStorage.getItem(DB_KEY);
-  if(!raw){ const db = seedDB(); saveDB(db); return db; }
-  try{ return JSON.parse(raw); }catch(e){ const db = seedDB(); saveDB(db); return db; }
-}
-function saveDB(db){ localStorage.setItem(DB_KEY, JSON.stringify(db)); }
-function loadSession(){ try{ return JSON.parse(localStorage.getItem(SESSION_KEY)) || {}; }catch(e){ return {}; } }
-function saveSession(s){ localStorage.setItem(SESSION_KEY, JSON.stringify(s)); }
 
 const PALETTE = ["#3B6E5E","#E8A23D","#C4577A","#5B7DB1","#9B7EBD","#4E9B7D"];
 function colorFor(name){
@@ -587,47 +579,10 @@ function colorFor(name){
   return PALETTE[h % PALETTE.length];
 }
 
-function seedDB(){
-  const meId = "u_demo_me";
-  const spouseId = "u_demo_spouse";
-  const familyId = "f_demo";
-  const albumTrip = "al_trip";
-  const albumDaily = "al_daily";
-  const now = Date.now();
-  const d = (offset)=>{ const t=new Date(); t.setDate(t.getDate()+offset); return t.toISOString().slice(0,10); };
-
-  return {
-    users:{
-      [meId]:{id:meId,name:"서연",email:"demo@family.app",pass:"demo1234",familyId},
-      [spouseId]:{id:spouseId,name:"민준",email:"minjun@family.app",pass:"demo1234",familyId},
-    },
-    families:{
-      [familyId]:{id:familyId,name:"우리 가족",inviteCode:"FAM482",memberIds:[meId,spouseId],createdAt:now}
-    },
-    events:{
-      "e1":{id:"e1",familyId,title:"소아과 정기 검진",date:d(1),time:"10:30",location:"연세소아과의원",participants:["서연","민준"],prep:"아이 건강수첩 챙기기",password:"",authorId:meId,authorName:"서연",createdAt:now},
-      "e2":{id:"e2",familyId,title:"제주도 가족 여행",date:d(4),time:"09:00",location:"제주국제공항",participants:["서연","민준"],prep:"여권, 우산, 카시트",password:"jeju2026",authorId:spouseId,authorName:"민준",createdAt:now},
-      "e3":{id:"e3",familyId,title:"학교 학부모 참관수업",date:d(2),time:"14:00",location:"초등학교 3층 3반",participants:["서연"],prep:"실내화",password:"",authorId:meId,authorName:"서연",createdAt:now},
-      "e4":{id:"e4",familyId,title:"할머니 생신 저녁식사",date:d(7),time:"18:30",location:"본가",participants:["서연","민준"],prep:"케이크 예약",password:"",authorId:spouseId,authorName:"민준",createdAt:now},
-    },
-    albums:{
-      [albumTrip]:{id:albumTrip,familyId,name:"제주 여행",createdAt:now},
-      [albumDaily]:{id:albumDaily,familyId,name:"일상 기록",createdAt:now},
-    },
-    photos:{
-      "p1":{id:"p1",albumId:albumTrip,familyId,dataUrl:"",caption:"협재 해변",uploaderId:meId,uploaderName:"서연",date:d(-30),createdAt:now,ph:"beach"},
-      "p2":{id:"p2",albumId:albumTrip,familyId,dataUrl:"",caption:"성산일출봉",uploaderId:spouseId,uploaderName:"민준",date:d(-29),createdAt:now,ph:"sunrise"},
-      "p3":{id:"p3",albumId:albumDaily,familyId,dataUrl:"",caption:"주말 산책",uploaderId:meId,uploaderName:"서연",date:d(-3),createdAt:now,ph:"walk"},
-    },
-    notifications:{
-      "n1":{id:"n1",familyId,type:"event",message:"민준님이 '제주도 가족 여행' 일정을 등록했어요",createdAt:now-1000*60*60},
-      "n2":{id:"n2",familyId,type:"photo",message:"서연님이 '일상 기록' 앨범에 사진을 올렸어요",createdAt:now-1000*60*30},
-    }
-  };
-}
-
-let db = loadDB();
-let session = loadSession();
+/* me: {id, email, name, family_id} | cache: family/members/events/albums/photos/notifications for the current family */
+let me = null;
+function emptyCache(){ return { family:null, members:[], events:[], albums:[], photos:[], notifications:[] }; }
+let cache = emptyCache();
 
 /* ---------------- install / PWA ---------------- */
 let deferredInstallPrompt = null;
@@ -655,7 +610,7 @@ if ("serviceWorker" in navigator) {
 
 /* ---------------- state ---------------- */
 let state = {
-  screen: session.userId ? "home" : "onboarding",
+  screen: "loading",
   stack: [],
   params: {},
   tab: "home",
@@ -669,19 +624,83 @@ let state = {
   albumFormOpen: false,
 };
 
-function currentUser(){ return session.userId ? db.users[session.userId] : null; }
-function currentFamily(){ const u=currentUser(); return u && u.familyId ? db.families[u.familyId] : null; }
-function familyMembers(){ const f=currentFamily(); if(!f) return []; return f.memberIds.map(id=>db.users[id]).filter(Boolean); }
-function familyEvents(){ const f=currentFamily(); if(!f) return []; return Object.values(db.events).filter(e=>e.familyId===f.id); }
-function familyAlbums(){ const f=currentFamily(); if(!f) return []; return Object.values(db.albums).filter(a=>a.familyId===f.id); }
-function familyPhotos(albumId){ const f=currentFamily(); if(!f) return []; return Object.values(db.photos).filter(p=>p.familyId===f.id && (!albumId || p.albumId===albumId)); }
-function familyNotifs(){ const f=currentFamily(); if(!f) return []; return Object.values(db.notifications).filter(n=>n.familyId===f.id).sort((a,b)=>b.createdAt-a.createdAt); }
+function currentUser(){ return me; }
+function currentFamily(){ return cache.family; }
+function familyMembers(){ return cache.members; }
+function familyEvents(){ return cache.events; }
+function familyAlbums(){ return cache.albums; }
+function familyPhotos(albumId){ return albumId ? cache.photos.filter(p=>p.album_id===albumId) : cache.photos; }
+function familyNotifs(){ return cache.notifications; }
+function getAlbum(id){ return cache.albums.find(a=>a.id===id); }
+function getPhoto(id){ return cache.photos.find(p=>p.id===id); }
+function getEvent(id){ return cache.events.find(e=>e.id===id); }
 
-function pushNotif(type,message){
-  const f = currentFamily(); if(!f) return;
-  const id = uid();
-  db.notifications[id] = {id, familyId:f.id, type, message, createdAt:Date.now()};
-  saveDB(db);
+async function pushNotif(type, message){
+  if(!cache.family) return;
+  await supabase.from("notifications").insert({ family_id: cache.family.id, type, message });
+}
+
+/* ---------------- data loading ---------------- */
+async function boot(){
+  const { data } = await supabase.auth.getSession();
+  const sessUser = data && data.session && data.session.user;
+  if(sessUser){ await establishSession(sessUser); }
+  else { state.screen = "onboarding"; render(); }
+
+  supabase.auth.onAuthStateChange((event) => {
+    if(event === "SIGNED_OUT"){
+      me = null; cache = emptyCache();
+      state.stack = []; state.screen = "onboarding"; render();
+    }
+  });
+}
+
+async function establishSession(authUser){
+  me = { id: authUser.id, email: authUser.email, name: authUser.email, family_id: null };
+  const { data: profile } = await supabase.from("profiles").select("*").eq("id", authUser.id).single();
+  if(profile){ me.name = profile.name; me.family_id = profile.family_id; }
+  state.stack = [];
+  if(me.family_id){
+    await loadFamily(me.family_id);
+    state.screen = "home"; state.tab = "home";
+  } else {
+    state.screen = "familyChoice";
+  }
+  render();
+}
+
+async function loadFamily(familyId){
+  const { data: fam } = await supabase.from("families").select("*").eq("id", familyId).single();
+  cache.family = fam;
+  await refreshAll();
+}
+
+async function refreshAll(){
+  if(!cache.family) return;
+  const fid = cache.family.id;
+  const [membersRes, eventsRes, albumsRes, photosRes, notifRes] = await Promise.all([
+    supabase.from("profiles").select("id,name,email").eq("family_id", fid),
+    supabase.rpc("list_events", { _family_id: fid }),
+    supabase.from("albums").select("*").eq("family_id", fid).order("created_at"),
+    supabase.from("photos").select("*").eq("family_id", fid).order("created_at", { ascending:false }),
+    supabase.from("notifications").select("*").eq("family_id", fid).order("created_at", { ascending:false }).limit(30),
+  ]);
+  cache.members = membersRes.data || [];
+  cache.events = eventsRes.data || [];
+  cache.albums = albumsRes.data || [];
+  cache.photos = photosRes.data || [];
+  cache.notifications = notifRes.data || [];
+  await attachSignedUrls();
+  render();
+}
+
+async function attachSignedUrls(){
+  const paths = cache.photos.map(p=>p.storage_path).filter(Boolean);
+  if(paths.length===0) return;
+  const { data } = await supabase.storage.from("photos").createSignedUrls(paths, 3600);
+  if(data){
+    data.forEach((d,i)=>{ if(cache.photos[i] && d.signedUrl) cache.photos[i].signedUrl = d.signedUrl; });
+  }
 }
 
 function nav(screen, params, opts){
@@ -744,22 +763,29 @@ function photoPh(tag){
 }
 
 /* ---------------- image resize helper ---------------- */
-function fileToResizedDataUrl(file, cb){
+function fileToResizedBlob(file, cb){
   const reader = new FileReader();
   reader.onload = function(e){
     const img = new Image();
     img.onload = function(){
-      const maxW = 800;
+      const maxW = 1280;
       const scale = Math.min(1, maxW / img.width);
       const w = Math.round(img.width*scale), h = Math.round(img.height*scale);
       const canvas = document.createElement("canvas");
       canvas.width=w; canvas.height=h;
       canvas.getContext("2d").drawImage(img,0,0,w,h);
-      cb(canvas.toDataURL("image/jpeg",0.82));
+      canvas.toBlob((blob)=>cb(blob), "image/jpeg", 0.82);
     };
     img.src = e.target.result;
   };
   reader.readAsDataURL(file);
+}
+function uuid(){
+  if(window.crypto && crypto.randomUUID) return crypto.randomUUID();
+  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, c=>{
+    const r = Math.random()*16|0, v = c==="x"?r:(r&0x3|0x8);
+    return v.toString(16);
+  });
 }
 
 /* ================= RENDER ================= */
@@ -769,7 +795,13 @@ function render(){
   window.A = actions;
   let html = "";
   const authScreens = ["onboarding","signup","login"];
-  if(authScreens.includes(state.screen)){
+  if(state.screen === "loading"){
+    html = `<div class="center-col" style="align-items:center;text-align:center;">
+      <div style="width:44px;height:44px;border-radius:14px;background:var(--primary);display:flex;align-items:center;justify-content:center;">
+        ${icon('logo').replace('<svg ','<svg style="width:22px;height:22px;stroke:#fff" ')}
+      </div>
+    </div>`;
+  } else if(authScreens.includes(state.screen)){
     html = renderAuth();
   } else if(state.screen === "familyChoice"){
     html = wrapPlain(renderFamilyChoice(), "가족 공간");
@@ -815,7 +847,6 @@ function renderAuth(){
       <button class="btn btn-primary" onclick="A.nav('signup')">${icon('mail')} 회원가입</button>
       <div style="height:10px;"></div>
       <button class="btn btn-ghost" onclick="A.nav('login')">로그인</button>
-      <div class="link-row"><a onclick="A.demoLogin()">데모 계정으로 둘러보기 →</a></div>
       ${renderInstallBanner()}
     </div>`;
   }
@@ -839,13 +870,12 @@ function renderAuth(){
     <div class="app-bar"><button class="icon-btn" onclick="A.nav('onboarding',null,true)">${icon('back')}</button><div class="ab-title" style="text-align:center">로그인</div><div style="width:36px"></div></div>
     <div class="app-body" style="padding-top:14px;">
       <form onsubmit="A.doLogin(event)">
-        <div class="field"><label>이메일</label><input class="input" name="email" type="email" placeholder="demo@family.app" required></div>
-        <div class="field"><label>비밀번호</label><input class="input" name="pass" type="password" placeholder="demo1234" required></div>
+        <div class="field"><label>이메일</label><input class="input" name="email" type="email" placeholder="you@example.com" required></div>
+        <div class="field"><label>비밀번호</label><input class="input" name="pass" type="password" required></div>
         <div id="loginError" class="error-text" style="display:none;"></div>
         <div style="height:8px;"></div>
         <button class="btn btn-primary" type="submit">로그인</button>
       </form>
-      <div class="helptext" style="text-align:center;margin-top:14px;">데모 계정 · demo@family.app / demo1234</div>
       <div class="link-row">계정이 없나요? <a onclick="A.nav('signup',null,true)">회원가입</a></div>
     </div>`;
   }
@@ -899,7 +929,7 @@ function renderShell(){
   else if(state.screen === "eventForm") return wrapPlain(renderEventForm(), state.params.editId? "일정 수정" : "일정 등록", true);
   else if(state.screen === "eventDetail") return wrapPlain(renderEventDetail(), "일정 상세", true);
   else if(state.screen === "albums"){ body = renderAlbums(); fab = state.albumView==="album" ? fabBtn(()=>"A.newAlbumPrompt()") : ""; }
-  else if(state.screen === "albumDetail") return wrapPlain(renderAlbumDetail(), db.albums[state.params.id]?.name || "앨범", true);
+  else if(state.screen === "albumDetail") return wrapPlain(renderAlbumDetail(), getAlbum(state.params.id)?.name || "앨범", true);
   else if(state.screen === "photoViewer") return wrapPlain(renderPhotoViewer(), "사진", true);
   else body = renderHome();
 
@@ -950,14 +980,14 @@ function renderNotifModal(){
       ${notifs.length===0 ? emptyState('bell','아직 알림이 없어요') : notifs.map(n=>`
         <div class="member-row">
           <div class="avatar" style="background:var(--primary-tint);">${icon(typeIcon[n.type]||'bell').replace('<svg ','<svg style="width:16px;height:16px;stroke:var(--primary-dark)" ')}</div>
-          <div><div class="mname" style="font-size:13.5px;font-weight:600;">${esc(n.message)}</div><div class="mmeta">${timeAgo(n.createdAt)}</div></div>
+          <div><div class="mname" style="font-size:13.5px;font-weight:600;">${esc(n.message)}</div><div class="mmeta">${timeAgo(n.created_at)}</div></div>
         </div>`).join('')}
     </div>
   </div>`;
 }
 
 function timeAgo(ts){
-  const diff = Math.floor((Date.now()-ts)/60000);
+  const diff = Math.floor((Date.now()-new Date(ts).getTime())/60000);
   if(diff<1) return "방금 전";
   if(diff<60) return diff+"분 전";
   if(diff<1440) return Math.floor(diff/60)+"시간 전";
@@ -993,7 +1023,7 @@ function renderInstallBanner(){
 /* ---- HOME ---- */
 function renderHome(){
   const events = familyEvents().filter(e=>e.date>=todayStr()).sort((a,b)=>(a.date+a.time).localeCompare(b.date+b.time)).slice(0,3);
-  const photos = familyPhotos().sort((a,b)=>b.createdAt-a.createdAt).slice(0,6);
+  const photos = familyPhotos().slice(0,6);
   const members = familyMembers();
 
   return `
@@ -1032,16 +1062,16 @@ function renderHome(){
 }
 
 function photoInner(p){
-  return p.dataUrl ? `<img src="${p.dataUrl}" alt="${esc(p.caption)}">` : photoPh(p.ph);
+  return p.signedUrl ? `<img src="${p.signedUrl}" alt="${esc(p.caption)}" loading="lazy">` : photoPh("_");
 }
 
 function eventItemHtml(e){
-  const locked = !!e.password && e.authorId !== currentUser().id && !state.verified[e.id];
+  const locked = e.is_locked && e.author_id !== currentUser().id && !state.verified[e.id];
   return `
   <div class="event-item" onclick="A.openEvent('${e.id}')">
     <div class="event-time">${fmtDateShort(e.date)}<br>${esc(e.time)}</div>
     <div class="event-main">
-      <div class="etitle">${locked ? '비공개 일정' : esc(e.title)} ${e.password? `<span class="lock-badge" style="margin-left:4px;">${icon('lock')}</span>`:''}</div>
+      <div class="etitle">${locked ? '비공개 일정' : esc(e.title)} ${e.is_locked? `<span class="lock-badge" style="margin-left:4px;">${icon('lock')}</span>`:''}</div>
       <div class="emeta">${locked ? '비밀번호로 보호된 일정입니다' : `${icon('pin')}${esc(e.location||'장소 미정')}`}</div>
     </div>
   </div>`;
@@ -1066,7 +1096,8 @@ function renderMembers(){
           <div class="mmeta">${esc(m.email)}</div>
         </div>
       </div>`).join('')}
-  </div>`;
+  </div>
+  <button class="btn btn-ghost" style="margin-top:16px;color:var(--rose);" onclick="A.logout()">로그아웃</button>`;
 }
 
 /* ---- INVITE ---- */
@@ -1075,7 +1106,7 @@ function renderInvite(){
   return `
   <div class="invite-code-box">
     <div style="font-size:12.5px;font-weight:700;color:var(--ink-soft);">${esc(f.name)} 초대 코드</div>
-    <div class="invite-code">${esc(f.inviteCode)}</div>
+    <div class="invite-code">${esc(f.invite_code)}</div>
     <div class="helptext">이 코드를 가족에게 공유하면, 가입 후 코드를 입력해 바로 참여할 수 있어요</div>
   </div>
   <button class="btn btn-ghost" onclick="A.copyCode()">${icon('copy')} 코드 복사하기</button>
@@ -1116,10 +1147,9 @@ function renderCalendar(){
         const evs = evByDate[c.dstr]||[];
         const isToday = c.dstr === todayStr();
         const isSel = c.dstr === state.calSelected;
-        const hasLock = evs.some(e=>e.password);
         return `<div class="cal-cell ${isToday?'today':''} ${isSel?'selected':''}" onclick="A.selectDay('${c.dstr}')">
           ${c.d}
-          ${evs.length? `<div class="cal-dots">${evs.slice(0,3).map(e=>`<i class="${e.password?'rose':''}"></i>`).join('')}</div>`:''}
+          ${evs.length? `<div class="cal-dots">${evs.slice(0,3).map(e=>`<i class="${e.is_locked?'rose':''}"></i>`).join('')}</div>`:''}
         </div>`;
       }).join('')}
     </div>
@@ -1139,11 +1169,11 @@ function fmtDateFull(dstr){
 /* ---- EVENT FORM ---- */
 function renderEventForm(){
   const editId = state.params.editId;
-  const ev = editId ? db.events[editId] : null;
+  const ev = editId ? getEvent(editId) : null;
   const members = familyMembers();
   const selectedDate = (ev && ev.date) || state.params.date || state.calSelected || todayStr();
   const participants = ev ? ev.participants : members.map(m=>m.name);
-  const hasPw = !!(ev && ev.password);
+  const hasPw = !!(ev && ev.is_locked);
 
   return `
   <form onsubmit="A.saveEvent(event, ${editId? `'${editId}'`:'null'})">
@@ -1171,7 +1201,7 @@ function renderEventForm(){
         <div class="switch ${hasPw?'on':''}" id="pwSwitch" onclick="A.togglePwSwitch()"></div>
       </div>
       <div id="pwField" style="margin-top:14px;${hasPw?'':'display:none;'}">
-        <input class="input" name="password" type="text" placeholder="비밀번호 설정" value="${esc(ev?.password||'')}">
+        <input class="input" name="password" type="text" placeholder="${hasPw? '변경하려면 새 비밀번호 입력 (비워두면 기존 비밀번호 유지)' : '비밀번호 설정'}">
       </div>
     </div>
 
@@ -1181,11 +1211,10 @@ function renderEventForm(){
 
 /* ---- EVENT DETAIL ---- */
 function renderEventDetail(){
-  const ev = db.events[state.params.id];
+  const ev = getEvent(state.params.id);
   if(!ev) return emptyState('calendar','일정을 찾을 수 없어요');
-  const me = currentUser();
-  const isOwner = ev.authorId === me.id;
-  const locked = !!ev.password && !isOwner && !state.verified[ev.id];
+  const isOwner = ev.author_id === currentUser().id;
+  const locked = !!ev.is_locked && !isOwner && !state.verified[ev.id];
 
   if(locked){
     return `
@@ -1194,7 +1223,7 @@ function renderEventDetail(){
         ${icon('lock').replace('<svg ','<svg style="width:24px;height:24px;stroke:var(--rose)" ')}
       </div>
       <div style="font-weight:800;font-size:16px;margin-bottom:6px;">비공개 일정입니다</div>
-      <div class="helptext" style="margin-bottom:20px;">${esc(ev.authorName)}님이 비밀번호로 보호했어요. 비밀번호를 입력하면 세부 내용을 볼 수 있어요.</div>
+      <div class="helptext" style="margin-bottom:20px;">${esc(ev.author_name)}님이 비밀번호로 보호했어요. 비밀번호를 입력하면 세부 내용을 볼 수 있어요.</div>
       <form onsubmit="A.verifyPassword(event,'${ev.id}')">
         <input class="input" name="pw" type="password" placeholder="비밀번호 입력" style="text-align:center;margin-bottom:10px;" required>
         <div id="pwError" class="error-text" style="display:none;margin-bottom:10px;">비밀번호가 올바르지 않아요</div>
@@ -1205,7 +1234,7 @@ function renderEventDetail(){
 
   return `
   <div class="card">
-    ${ev.password? `<div class="lock-badge" style="margin-bottom:10px;">${icon('lock')} 비공개 일정</div>`:''}
+    ${ev.is_locked? `<div class="lock-badge" style="margin-bottom:10px;">${icon('lock')} 비공개 일정</div>`:''}
     <div style="font-size:19px;font-weight:800;margin-bottom:14px;">${esc(ev.title)}</div>
     <div style="display:flex;flex-direction:column;gap:12px;">
       <div style="display:flex;gap:10px;align-items:center;font-size:14px;">${icon('clock').replace('<svg ','<svg style="width:17px;height:17px;stroke:var(--ink-soft)" ')}${fmtDateFull(ev.date)} · ${esc(ev.time)}</div>
@@ -1215,7 +1244,7 @@ function renderEventDetail(){
       </div>
       ${ev.prep ? `<div style="display:flex;gap:10px;align-items:flex-start;font-size:14px;">${icon('edit').replace('<svg ','<svg style="width:17px;height:17px;stroke:var(--ink-soft);margin-top:1px;" ')}<div>${esc(ev.prep)}</div></div>`:''}
     </div>
-    <div class="helptext" style="margin-top:16px;border-top:1px solid var(--line);padding-top:12px;">${esc(ev.authorName)}님이 등록</div>
+    <div class="helptext" style="margin-top:16px;border-top:1px solid var(--line);padding-top:12px;">${esc(ev.author_name)}님이 등록</div>
   </div>
   ${isOwner ? `
   <div style="display:flex;gap:10px;margin-top:14px;">
@@ -1258,9 +1287,9 @@ function renderPhotosByDate(){
 }
 
 function renderAlbumDetail(){
-  const album = db.albums[state.params.id];
+  const album = getAlbum(state.params.id);
   if(!album) return emptyState('album','앨범을 찾을 수 없어요');
-  const photos = familyPhotos(album.id).sort((a,b)=>b.createdAt-a.createdAt);
+  const photos = familyPhotos(album.id);
   return `
   <input type="file" id="photoFileInput" accept="image/*" style="display:none;" onchange="A.uploadPhoto(event,'${album.id}')">
   <button class="btn btn-primary" style="margin-bottom:16px;" onclick="document.getElementById('photoFileInput').click()">${icon('camera')} 사진 업로드</button>
@@ -1270,13 +1299,13 @@ function renderAlbumDetail(){
 }
 
 function renderPhotoViewer(){
-  const p = db.photos[state.params.id];
+  const p = getPhoto(state.params.id);
   if(!p) return emptyState('camera','사진을 찾을 수 없어요');
   return `
   <div style="border-radius:16px;overflow:hidden;aspect-ratio:1;margin-bottom:14px;">${photoInner(p)}</div>
   <div class="card">
     <div style="font-weight:700;font-size:15px;margin-bottom:6px;">${esc(p.caption || "사진")}</div>
-    <div class="helptext">${esc(p.uploaderName)}님이 ${fmtDateFull(p.date)}에 업로드</div>
+    <div class="helptext">${esc(p.uploader_name)}님이 ${fmtDateFull(p.date)}에 업로드</div>
   </div>`;
 }
 
@@ -1301,69 +1330,86 @@ const actions = {
     sessionStorage.setItem("famshare.installDismissed", "1");
     render();
   },
-  demoLogin(){
-    session.userId = "u_demo_me"; saveSession(session);
-    state.stack = []; state.screen = "home"; state.tab="home"; render();
-  },
-  doSignup(e){
+  async doSignup(e){
     e.preventDefault();
     const f = e.target;
     const name = f.name.value.trim(), email = f.email.value.trim().toLowerCase(), pass = f.pass.value;
+    const btn = f.querySelector("button[type=submit]");
     const errBox = document.getElementById("signupError");
-    const exists = Object.values(db.users).find(u=>u.email===email);
-    if(exists){ errBox.textContent = "이미 가입된 이메일이에요"; errBox.style.display="block"; return; }
-    const id = "u_"+uid();
-    db.users[id] = {id, name, email, pass, familyId:null};
-    saveDB(db);
-    session.userId = id; saveSession(session);
-    state.stack=[]; nav("familyChoice", null, {replace:true});
+    errBox.style.display = "none";
+    btn.disabled = true;
+    const { data, error } = await supabase.auth.signUp({ email, password: pass, options: { data: { name } } });
+    btn.disabled = false;
+    if(error){ errBox.textContent = error.message.includes("already registered") ? "이미 가입된 이메일이에요" : error.message; errBox.style.display="block"; return; }
+    if(!data.session){
+      showToast("가입 완료! 이메일을 확인해서 인증해주세요");
+      state.stack=[]; nav("login", null, {replace:true});
+      return;
+    }
+    await establishSession(data.user);
   },
-  doLogin(e){
+  async doLogin(e){
     e.preventDefault();
     const f = e.target;
     const email = f.email.value.trim().toLowerCase(), pass = f.pass.value;
-    const user = Object.values(db.users).find(u=>u.email===email && u.pass===pass);
+    const btn = f.querySelector("button[type=submit]");
     const errBox = document.getElementById("loginError");
-    if(!user){ errBox.textContent = "이메일 또는 비밀번호가 올바르지 않아요"; errBox.style.display="block"; return; }
-    session.userId = user.id; saveSession(session);
-    state.stack=[];
-    nav(user.familyId ? "home" : "familyChoice", null, {replace:true});
+    errBox.style.display = "none";
+    btn.disabled = true;
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password: pass });
+    btn.disabled = false;
+    if(error){
+      errBox.textContent = /confirm/i.test(error.message) ? "이메일 인증이 필요해요. 받은 편지함을 확인해주세요" : "이메일 또는 비밀번호가 올바르지 않아요";
+      errBox.style.display="block";
+      return;
+    }
+    await establishSession(data.user);
   },
-  doCreateFamily(e){
+  async logout(){
+    await supabase.auth.signOut();
+  },
+
+  async doCreateFamily(e){
     e.preventDefault();
     const name = e.target.fname.value.trim();
-    const fid = "f_"+uid();
-    const code = "FAM"+Math.floor(100+Math.random()*900);
-    const user = currentUser();
-    db.families[fid] = {id:fid, name, inviteCode:code, memberIds:[user.id], createdAt:Date.now()};
-    db.users[user.id].familyId = fid;
-    const alId = "al_"+uid();
-    db.albums[alId] = {id:alId, familyId:fid, name:"우리 가족 앨범", createdAt:Date.now()};
-    saveDB(db);
+    const btn = e.target.querySelector("button[type=submit]");
+    btn.disabled = true;
+    let family = null, lastErr = null;
+    for(let i=0;i<3;i++){
+      const code = "FAM"+Math.floor(1000+Math.random()*9000);
+      const res = await supabase.from("families").insert({ name, invite_code: code, created_by: me.id }).select().single();
+      if(!res.error){ family = res.data; break; }
+      lastErr = res.error;
+    }
+    if(!family){ btn.disabled=false; showToast("가족 공간을 만들지 못했어요"); return; }
+    await supabase.from("profiles").update({ family_id: family.id }).eq("id", me.id);
+    await supabase.from("albums").insert({ family_id: family.id, name: "우리 가족 앨범" });
+    me.family_id = family.id;
+    await loadFamily(family.id);
     state.stack=[]; state.screen="home"; state.tab="home"; render();
     showToast("가족 공간이 생성되었어요");
   },
-  doJoinFamily(e){
+  async doJoinFamily(e){
     e.preventDefault();
     const code = e.target.code.value.trim().toUpperCase();
-    const family = Object.values(db.families).find(f=>f.inviteCode===code);
     const errBox = document.getElementById("joinError");
-    if(!family){ errBox.textContent = "일치하는 초대 코드를 찾을 수 없어요"; errBox.style.display="block"; return; }
-    const user = currentUser();
-    if(!family.memberIds.includes(user.id)) family.memberIds.push(user.id);
-    db.users[user.id].familyId = family.id;
-    saveDB(db);
-    pushNotif("member", `${user.name}님이 가족 공간에 참여했어요`);
+    errBox.style.display = "none";
+    const { data: family, error } = await supabase.from("families").select("*").eq("invite_code", code).maybeSingle();
+    if(error || !family){ errBox.textContent = "일치하는 초대 코드를 찾을 수 없어요"; errBox.style.display="block"; return; }
+    await supabase.from("profiles").update({ family_id: family.id }).eq("id", me.id);
+    me.family_id = family.id;
+    await loadFamily(family.id);
+    await pushNotif("member", `${me.name}님이 가족 공간에 참여했어요`);
+    await refreshAll();
     state.stack=[]; state.screen="home"; state.tab="home"; render();
     showToast(`${family.name}에 참여했어요`);
   },
-  logoutNotUsed(){},
 
   copyCode(){
     const f = currentFamily();
     const done = ()=>showToast("초대 코드를 복사했어요");
     if(navigator.clipboard && navigator.clipboard.writeText){
-      navigator.clipboard.writeText(f.inviteCode).then(done).catch(done);
+      navigator.clipboard.writeText(f.invite_code).then(done).catch(done);
     } else { done(); }
   },
 
@@ -1383,72 +1429,94 @@ const actions = {
     field.style.display = sw.classList.contains("on") ? "block" : "none";
     if(!sw.classList.contains("on")) field.querySelector("input").value = "";
   },
-  saveEvent(e, editId){
+  async saveEvent(e, editId){
     e.preventDefault();
     const f = e.target;
+    const btn = f.querySelector("button[type=submit]");
     const participants = Array.from(f.querySelectorAll(".check-box.on")).map(el=>el.dataset.name);
     const isPw = document.getElementById("pwSwitch").classList.contains("on");
-    const pwVal = isPw ? f.password.value.trim() : "";
+    const pwTyped = isPw ? f.password.value.trim() : "";
     const family = currentFamily();
-    const me = currentUser();
+    btn.disabled = true;
+
+    const base = {
+      title: f.title.value.trim(), date: f.date.value, "time": f.time.value,
+      location: f.location.value.trim(), participants, prep: f.prep.value.trim(),
+    };
+    if(!isPw) base.password = null;
+    else if(pwTyped) base.password = pwTyped;
 
     if(editId){
-      const ev = db.events[editId];
-      Object.assign(ev, {title:f.title.value.trim(), date:f.date.value, time:f.time.value, location:f.location.value.trim(), participants, prep:f.prep.value.trim(), password:pwVal});
-      saveDB(db);
-      pushNotif("event", `${me.name}님이 '${ev.title}' 일정을 수정했어요`);
+      const { error } = await supabase.from("events").update(base).eq("id", editId);
+      btn.disabled = false;
+      if(error){ showToast("수정하지 못했어요"); return; }
+      await pushNotif("event", `${me.name}님이 '${base.title}' 일정을 수정했어요`);
+      await refreshAll();
       showToast("일정을 수정했어요");
       nav("eventDetail", {id:editId}, {replace:true});
     } else {
-      const id = "e_"+uid();
-      db.events[id] = {id, familyId:family.id, title:f.title.value.trim(), date:f.date.value, time:f.time.value, location:f.location.value.trim(), participants, prep:f.prep.value.trim(), password:pwVal, authorId:me.id, authorName:me.name, createdAt:Date.now()};
-      saveDB(db);
-      pushNotif("event", `${me.name}님이 '${db.events[id].title}' 일정을 등록했어요`);
-      showToast("일정을 등록했어요");
-      state.calSelected = db.events[id].date;
-      nav("eventDetail", {id}, {replace:true});
+      const { data, error } = await supabase.from("events").insert({
+        ...base, family_id: family.id, author_id: me.id, author_name: me.name,
+      }).select("id").single();
+      btn.disabled = false;
+      if(error){ showToast("등록하지 못했어요"); return; }
+      await pushNotif("event", `${me.name}님이 '${base.title}' 일정을 등록했어요`);
+      state.calSelected = base.date;
+      await refreshAll();
+      nav("eventDetail", {id:data.id}, {replace:true});
     }
   },
   openEvent(id){ nav("eventDetail", {id}); },
-  verifyPassword(e, id){
+  async verifyPassword(e, id){
     e.preventDefault();
     const pw = e.target.pw.value;
-    const ev = db.events[id];
-    if(pw === ev.password){ state.verified[id] = true; render(); }
-    else { document.getElementById("pwError").style.display = "block"; }
+    const { data, error } = await supabase.rpc("unlock_event", { _event_id: id, _password: pw });
+    if(error || !data || data.length===0){ document.getElementById("pwError").style.display = "block"; return; }
+    const full = data[0];
+    const ev = getEvent(id);
+    if(ev) Object.assign(ev, full);
+    state.verified[id] = true;
+    render();
   },
-  cancelEvent(id){
-    const ev = db.events[id];
+  async cancelEvent(id){
+    const ev = getEvent(id);
     if(!confirm(`'${ev.title}' 일정을 취소할까요?`)) return;
-    delete db.events[id];
-    saveDB(db);
-    pushNotif("event", `${currentUser().name}님이 '${ev.title}' 일정을 취소했어요`);
+    const { error } = await supabase.from("events").delete().eq("id", id);
+    if(error){ showToast("취소하지 못했어요"); return; }
+    await pushNotif("event", `${me.name}님이 '${ev.title}' 일정을 취소했어요`);
     showToast("일정을 취소했어요");
+    await refreshAll();
     goBack();
   },
 
   setAlbumView(v){ state.albumView = v; render(); },
-  newAlbumPrompt(){
+  async newAlbumPrompt(){
     const name = prompt("새 앨범 이름을 입력하세요");
     if(!name || !name.trim()) return;
-    const id = "al_"+uid();
-    db.albums[id] = {id, familyId: currentFamily().id, name: name.trim(), createdAt:Date.now()};
-    saveDB(db);
-    render();
+    const { error } = await supabase.from("albums").insert({ family_id: currentFamily().id, name: name.trim() });
+    if(error){ showToast("앨범을 만들지 못했어요"); return; }
+    await refreshAll();
     showToast("앨범을 만들었어요");
   },
   openPhoto(id){ nav("photoViewer", {id}); },
   uploadPhoto(e, albumId){
     const file = e.target.files[0];
     if(!file) return;
-    fileToResizedDataUrl(file, (dataUrl)=>{
-      const id = "p_"+uid();
-      const me = currentUser();
-      db.photos[id] = {id, albumId, familyId: currentFamily().id, dataUrl, caption:"", uploaderId:me.id, uploaderName:me.name, date: todayStr(), createdAt: Date.now()};
-      saveDB(db);
-      pushNotif("photo", `${me.name}님이 '${db.albums[albumId].name}' 앨범에 사진을 올렸어요`);
+    showToast("업로드 중...");
+    fileToResizedBlob(file, async (blob)=>{
+      const family = currentFamily();
+      const path = `${family.id}/${uuid()}.jpg`;
+      const { error: upErr } = await supabase.storage.from("photos").upload(path, blob, { contentType: "image/jpeg" });
+      if(upErr){ showToast("업로드하지 못했어요"); return; }
+      const { error } = await supabase.from("photos").insert({
+        album_id: albumId, family_id: family.id, storage_path: path,
+        caption: "", uploader_id: me.id, uploader_name: me.name, date: todayStr(),
+      });
+      if(error){ showToast("업로드하지 못했어요"); return; }
+      const album = getAlbum(albumId);
+      await pushNotif("photo", `${me.name}님이 '${album ? album.name : "앨범"}'에 사진을 올렸어요`);
+      await refreshAll();
       showToast("사진을 업로드했어요");
-      render();
     });
     e.target.value = "";
   },
@@ -1456,7 +1524,7 @@ const actions = {
 
 function attachGlobalHandlers(){}
 
-render();
+boot();
 })();
 </script>
 </body>
