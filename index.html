@@ -9,8 +9,8 @@
 <meta name="apple-mobile-web-app-title" content="가족모아">
 <meta name="mobile-web-app-capable" content="yes">
 <link rel="manifest" href="manifest.json">
-<link rel="apple-touch-icon" href="icon.svg">
-<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="icon" href="icon-192.png" type="image/png">
 <title>가족모아 — 가족 일정·사진 공유 앱</title>
 <style>
 :root{
@@ -446,6 +446,25 @@ textarea{resize:vertical;min-height:64px;}
 .qa-btn span{font-size:11.5px;font-weight:700;}
 
 .center-col{display:flex;flex-direction:column;justify-content:center;flex:1;padding:0 18px 40px;}
+.install-banner{
+  display:flex;align-items:center;gap:11px;
+  background:var(--card);border:1px solid var(--line);border-radius:16px;
+  padding:12px 13px;margin:16px 0 0;box-shadow:var(--shadow);
+}
+.install-banner .ib-icon{
+  width:38px;height:38px;border-radius:11px;background:var(--primary-tint);flex-shrink:0;
+  display:flex;align-items:center;justify-content:center;
+}
+.install-banner .ib-icon svg{width:18px;height:18px;stroke:var(--primary-dark);}
+.install-banner .ib-text{flex:1;font-size:12.5px;line-height:1.45;color:var(--ink-soft);}
+.install-banner .ib-text b{display:block;font-size:13.5px;color:var(--ink);font-weight:800;margin-bottom:1px;}
+.install-banner button{
+  flex-shrink:0;background:var(--primary);color:#fff;border:none;border-radius:10px;
+  padding:9px 13px;font-size:12.5px;font-weight:700;cursor:pointer;
+}
+.install-banner .ib-close{
+  background:none;color:var(--ink-soft);padding:4px;font-size:16px;line-height:1;
+}
 .auth-logo{font-size:22px;font-weight:800;margin-bottom:6px;letter-spacing:-.02em;}
 .auth-sub{font-size:13.5px;color:var(--ink-soft);margin-bottom:32px;}
 .link-row{text-align:center;margin-top:18px;font-size:13px;color:var(--ink-soft);}
@@ -610,6 +629,30 @@ function seedDB(){
 let db = loadDB();
 let session = loadSession();
 
+/* ---------------- install / PWA ---------------- */
+let deferredInstallPrompt = null;
+const installState = {
+  standalone: window.matchMedia("(display-mode: standalone)").matches || window.navigator.standalone === true,
+  ios: /iphone|ipad|ipod/i.test(navigator.userAgent) && !window.MSStream,
+  available: false,
+  dismissed: sessionStorage.getItem("famshare.installDismissed") === "1",
+};
+window.addEventListener("beforeinstallprompt", (e) => {
+  e.preventDefault();
+  deferredInstallPrompt = e;
+  installState.available = true;
+  render();
+});
+window.addEventListener("appinstalled", () => {
+  installState.standalone = true;
+  render();
+});
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("./sw.js").catch(() => {});
+  });
+}
+
 /* ---------------- state ---------------- */
 let state = {
   screen: session.userId ? "home" : "onboarding",
@@ -687,6 +730,8 @@ const ICON = {
   key:'<path d="M3 21v-3l7.6-7.6"/><circle cx="16.5" cy="7.5" r="3.5"/>',
   chevR:'<path d="M9 6l6 6-6 6"/>',
   logo:'<path d="M12 21s-7-6.1-7-11a7 7 0 0114 0c0 4.9-7 11-7 11z"/><path d="M9.5 10.5l1.7 1.7 3.3-3.4"/>',
+  download:'<path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M5 21h14"/>',
+  share:'<circle cx="18" cy="5" r="2.5"/><circle cx="6" cy="12" r="2.5"/><circle cx="18" cy="19" r="2.5"/><path d="M8.2 10.7l7.6-4.4M8.2 13.3l7.6 4.4"/>',
 };
 function icon(name, cls){ return `<svg class="${cls||''}" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${ICON[name]||''}</svg>`; }
 
@@ -771,6 +816,7 @@ function renderAuth(){
       <div style="height:10px;"></div>
       <button class="btn btn-ghost" onclick="A.nav('login')">로그인</button>
       <div class="link-row"><a onclick="A.demoLogin()">데모 계정으로 둘러보기 →</a></div>
+      ${renderInstallBanner()}
     </div>`;
   }
   if(state.screen === "signup"){
@@ -922,6 +968,28 @@ function emptyState(ic, text){
   return `<div class="empty-state">${icon(ic)}<p>${esc(text)}</p></div>`;
 }
 
+function renderInstallBanner(){
+  if (installState.standalone || installState.dismissed) return "";
+  if (installState.available){
+    return `
+    <div class="install-banner">
+      <div class="ib-icon">${icon('download')}</div>
+      <div class="ib-text"><b>휴대폰에 앱으로 설치</b>홈 화면에 추가하고 브라우저 없이 바로 열어보세요</div>
+      <button onclick="A.installApp()">설치</button>
+      <button class="ib-close" onclick="A.dismissInstall()">${icon('x')}</button>
+    </div>`;
+  }
+  if (installState.ios){
+    return `
+    <div class="install-banner">
+      <div class="ib-icon">${icon('share')}</div>
+      <div class="ib-text"><b>휴대폰에 앱으로 설치</b>Safari 하단 공유 버튼을 누르고 '홈 화면에 추가'를 선택하세요</div>
+      <button class="ib-close" onclick="A.dismissInstall()">${icon('x')}</button>
+    </div>`;
+  }
+  return "";
+}
+
 /* ---- HOME ---- */
 function renderHome(){
   const events = familyEvents().filter(e=>e.date>=todayStr()).sort((a,b)=>(a.date+a.time).localeCompare(b.date+b.time)).slice(0,3);
@@ -929,6 +997,7 @@ function renderHome(){
   const members = familyMembers();
 
   return `
+  ${renderInstallBanner()}
   <div class="section-title">구성원 <a class="btn-text" style="padding:0;" onclick="A.nav('members')">전체보기</a></div>
   <div style="display:flex;gap:10px;overflow-x:auto;padding-bottom:4px;">
     ${members.map(m=>`
@@ -1218,6 +1287,20 @@ const actions = {
   setTab(t){ setTab(t); },
   toggleNotif(){ state.showNotif = !state.showNotif; render(); },
 
+  installApp(){
+    if(!deferredInstallPrompt) return;
+    deferredInstallPrompt.prompt();
+    deferredInstallPrompt.userChoice.finally(()=>{
+      deferredInstallPrompt = null;
+      installState.available = false;
+      render();
+    });
+  },
+  dismissInstall(){
+    installState.dismissed = true;
+    sessionStorage.setItem("famshare.installDismissed", "1");
+    render();
+  },
   demoLogin(){
     session.userId = "u_demo_me"; saveSession(session);
     state.stack = []; state.screen = "home"; state.tab="home"; render();
