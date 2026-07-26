@@ -489,7 +489,10 @@ textarea{resize:vertical;min-height:64px;}
   text-align:center;color:var(--ink-soft);font-size:12.5px;
 }
 
-/* ---------- MOBILE: the phone-frame mockup becomes the real app ---------- */
+/* ---------- MOBILE: the phone-frame mockup becomes the real app ----------
+   Triggered by viewport width (@media) AND by a `.is-phone` class the boot
+   script adds based on the device's user agent — some in-app/WebView browsers
+   misreport viewport width, so width alone isn't reliable. */
 @media (max-width:700px){
   .hero, .stage-label, .footer{ display:none; }
   .page{ min-height:100dvh; }
@@ -506,6 +509,20 @@ textarea{resize:vertical;min-height:64px;}
   .app-bar{ padding-top:calc(env(safe-area-inset-top,0px) + 16px); }
   .center-col{ padding-left:22px; padding-right:22px; }
 }
+html.is-phone .hero, html.is-phone .stage-label, html.is-phone .footer{ display:none; }
+html.is-phone .page{ min-height:100dvh; }
+html.is-phone .stage{
+  padding:0; min-height:100dvh; background:var(--bg);
+  background-image:none;
+}
+html.is-phone .phone-frame{
+  width:100%; max-width:100%; height:100dvh; max-height:none;
+  background:none; padding:0; border-radius:0; box-shadow:none;
+}
+html.is-phone .phone-notch{ display:none; }
+html.is-phone .app-screen{ border-radius:0; height:100dvh; }
+html.is-phone .app-bar{ padding-top:calc(env(safe-area-inset-top,0px) + 16px); }
+html.is-phone .center-col{ padding-left:22px; padding-right:22px; }
 /* very small phones (iPhone mini class, 375px and under) */
 @media (max-width:380px){
   .app-body{ padding-left:15px; padding-right:15px; }
@@ -513,6 +530,11 @@ textarea{resize:vertical;min-height:64px;}
   .invite-code{ font-size:26px; }
 }
 </style>
+<script>
+if(/Android|iPhone|iPad|iPod|Mobile|webOS/i.test(navigator.userAgent)){
+  document.documentElement.classList.add("is-phone");
+}
+</script>
 </head>
 <body>
 <div class="page">
