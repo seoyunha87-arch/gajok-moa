@@ -714,6 +714,7 @@ async function refreshAll(){
   cache.albums = albumsRes.data || [];
   cache.photos = photosRes.data || [];
   cache.notifications = notifRes.data || [];
+  render(); // paint immediately with placeholders instead of waiting on signed URLs too
   await attachSignedUrls();
   render();
 }
