@@ -79,6 +79,15 @@ body{
   background:var(--bg);
   -webkit-font-smoothing:antialiased;
   overflow-x:hidden;
+  touch-action:manipulation; /* kill Android's tap-to-zoom detection delay so taps feel instant */
+}
+button, .btn, [onclick]{ touch-action:manipulation; }
+.card[onclick], .event-item, .photo-thumb, .album-card, .qa-btn, .checklist-row, .cal-cell, .chip, .tab-item, .fab, .icon-btn, .segmented button{
+  -webkit-tap-highlight-color:transparent;
+  transition:transform .08s ease, opacity .08s ease, background-color .12s ease;
+}
+.event-item:active, .photo-thumb:active, .album-card:active, .qa-btn:active, .checklist-row:active, .cal-cell:active, .chip:active{
+  transform:scale(.96); opacity:.85;
 }
 img{max-width:100%;display:block;}
 button{font-family:inherit;}
