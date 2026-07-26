@@ -618,6 +618,7 @@ let state = {
   calSelected: todayStr(),
   albumView: "album",
   showNotif: false,
+  showIosHelp: false,
   verified: {},
   toast: null,
   formDraft: null,
@@ -812,8 +813,34 @@ function render(){
   } else {
     html = renderShell();
   }
+  if(state.showIosHelp) html += renderIosHelpModal();
   app.innerHTML = html;
   attachGlobalHandlers();
+}
+
+function renderIosHelpModal(){
+  return `
+  <div class="modal-backdrop" onclick="if(event.target===this) A.hideIosHelp()">
+    <div class="modal-sheet">
+      <div class="sheet-handle"></div>
+      <div class="sheet-head"><h3>홈 화면에 추가하기</h3><button class="icon-btn" onclick="A.hideIosHelp()">${icon('x')}</button></div>
+      <div style="display:flex;flex-direction:column;gap:16px;">
+        <div style="display:flex;gap:12px;align-items:flex-start;">
+          <div class="avatar" style="background:var(--primary-tint);flex-shrink:0;">${icon('share').replace('<svg ','<svg style="width:17px;height:17px;stroke:var(--primary-dark)" ')}</div>
+          <div style="font-size:14px;line-height:1.5;padding-top:6px;"><b>① </b>사파리 화면 아래쪽(또는 위쪽)의 <b>공유 아이콘</b>을 직접 손가락으로 탭하세요</div>
+        </div>
+        <div style="display:flex;gap:12px;align-items:flex-start;">
+          <div class="avatar" style="background:var(--accent-tint);flex-shrink:0;">${icon('plus').replace('<svg ','<svg style="width:17px;height:17px;stroke:var(--accent)" ')}</div>
+          <div style="font-size:14px;line-height:1.5;padding-top:6px;"><b>② </b>메뉴를 아래로 스크롤해서 <b>'홈 화면에 추가'</b>를 탭하세요</div>
+        </div>
+        <div style="display:flex;gap:12px;align-items:flex-start;">
+          <div class="avatar" style="background:var(--rose-tint);flex-shrink:0;">${icon('check').replace('<svg ','<svg style="width:17px;height:17px;stroke:var(--rose)" ')}</div>
+          <div style="font-size:14px;line-height:1.5;padding-top:6px;"><b>③ </b>오른쪽 위 <b>'추가'</b>를 탭하면 완료! 홈 화면에 아이콘이 생겨요</div>
+        </div>
+      </div>
+      <div class="helptext" style="margin-top:18px;text-align:center;">이 화면은 버튼이 아니라 안내예요 — 실제로는 사파리 화면에서 직접 눌러야 해요</div>
+    </div>
+  </div>`;
 }
 
 function wrapPlain(inner, title, showBack){
@@ -1011,10 +1038,10 @@ function renderInstallBanner(){
   }
   if (installState.ios){
     return `
-    <div class="install-banner">
+    <div class="install-banner" style="cursor:pointer;" onclick="A.showIosHelp()">
       <div class="ib-icon">${icon('share')}</div>
-      <div class="ib-text"><b>휴대폰에 앱으로 설치</b>Safari 하단 공유 버튼을 누르고 '홈 화면에 추가'를 선택하세요</div>
-      <button class="ib-close" onclick="A.dismissInstall()">${icon('x')}</button>
+      <div class="ib-text"><b>홈 화면에 추가하는 방법 보기</b>아이폰은 직접 몇 단계만 누르면 앱처럼 설치돼요</div>
+      <button class="ib-close" onclick="event.stopPropagation(); A.dismissInstall()">${icon('x')}</button>
     </div>`;
   }
   return "";
@@ -1330,6 +1357,8 @@ const actions = {
     sessionStorage.setItem("famshare.installDismissed", "1");
     render();
   },
+  showIosHelp(){ state.showIosHelp = true; render(); },
+  hideIosHelp(){ state.showIosHelp = false; render(); },
   async doSignup(e){
     e.preventDefault();
     const f = e.target;
