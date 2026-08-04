@@ -765,10 +765,25 @@ async function establishSession(authUser){
   render();
 }
 
+let realtimeChannel = null;
+function subscribeRealtime(familyId){
+  if(realtimeChannel){ supabase.removeChannel(realtimeChannel); realtimeChannel = null; }
+  // notifications is the one table every family member can always read (see RLS),
+  // and every meaningful action (event/photo/member-join) writes a row there —
+  // so it doubles as a reliable "something changed, refetch" signal for everything else.
+  realtimeChannel = supabase
+    .channel("family-" + familyId)
+    .on("postgres_changes", { event: "INSERT", schema: "public", table: "notifications", filter: "family_id=eq." + familyId }, () => {
+      refreshAll();
+    })
+    .subscribe();
+}
+
 async function loadFamily(familyId){
   const { data: fam } = await supabase.from("families").select("*").eq("id", familyId).single();
   cache.family = fam;
   await refreshAll();
+  subscribeRealtime(familyId);
 }
 
 async function refreshAll(){
@@ -1046,7 +1061,7 @@ function renderShell(){
   let fab = "";
 
   if(state.screen === "home") body = renderHome();
-  else if(state.screen === "members") return wrapPlain(renderMembers(), "구성원", true);
+  else if(state.screen === "members") return wrapPlain(renderMembers(), "구성원·설정", true);
   else if(state.screen === "invite") return wrapPlain(renderInvite(), "가족 초대", true);
   else if(state.screen === "calendar"){ body = renderCalendar(); fab = fabBtn(()=>`A.openEventForm('${state.calSelected}')`); }
   else if(state.screen === "eventForm") return wrapPlain(renderEventForm(), state.params.editId? "일정 수정" : "일정 등록", true);
@@ -1222,6 +1237,9 @@ function renderMembers(){
   const members = familyMembers();
   const me = currentUser();
   return `
+  <div class="section-title">설정</div>
+  ${renderNotifSettingCard()}
+  <div class="section-title">구성원</div>
   <button class="btn btn-primary" style="margin-bottom:18px;" onclick="A.nav('invite')">${icon('plus')} 가족 초대하기</button>
   <div class="card">
     ${members.map(m=>`
@@ -1234,6 +1252,25 @@ function renderMembers(){
       </div>`).join('')}
   </div>
   <button class="btn btn-ghost" style="margin-top:16px;color:var(--rose);" onclick="A.logout()">로그아웃</button>`;
+}
+
+function renderNotifSettingCard(){
+  if(!pushState.supported){
+    return `<div class="card" style="margin-bottom:18px;">
+      <div style="display:flex;gap:12px;align-items:center;">
+        ${icon('bell').replace('<svg ','<svg style="width:18px;height:18px;stroke:var(--ink-soft)" ')}
+        <div style="flex:1;"><div style="font-weight:700;font-size:14px;">휴대폰 알림</div><div class="helptext" style="margin-top:2px;">이 브라우저에서는 지원되지 않아요${installState.ios && !installState.standalone ? ' (홈 화면에 추가 후 이용 가능해요)' : ''}</div></div>
+      </div>
+    </div>`;
+  }
+  const statusText = { granted: "켜짐", denied: "차단됨 — 휴대폰 설정에서 이 사이트 알림을 허용해주세요", default: "꺼짐" }[pushState.permission] || "꺼짐";
+  return `<div class="card" style="margin-bottom:18px;">
+    <div style="display:flex;gap:12px;align-items:center;">
+      ${icon('bell').replace('<svg ','<svg style="width:18px;height:18px;stroke:var(--primary-dark)" ')}
+      <div style="flex:1;"><div style="font-weight:700;font-size:14px;">휴대폰 알림</div><div class="helptext" style="margin-top:2px;">${statusText}</div></div>
+      ${pushState.permission === "default" ? `<button class="btn btn-primary btn-sm" onclick="A.enablePush()">켜기</button>` : ""}
+    </div>
+  </div>`;
 }
 
 /* ---- INVITE ---- */
