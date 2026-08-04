@@ -611,6 +611,18 @@ function colorFor(name){
   return PALETTE[h % PALETTE.length];
 }
 
+/* in-app browsers (KakaoTalk, Naver, Instagram, Facebook, Line...) often block
+   PWA install + notification permission entirely regardless of what the site does */
+const inAppBrowser = (() => {
+  const ua = navigator.userAgent || "";
+  if(/KAKAOTALK/i.test(ua)) return "카카오톡";
+  if(/NAVER\(/i.test(ua)) return "네이버";
+  if(/Instagram/i.test(ua)) return "인스타그램";
+  if(/FBAN|FBAV/i.test(ua)) return "페이스북";
+  if(/Line\//i.test(ua)) return "라인";
+  return null;
+})();
+
 /* me: {id, email, name, family_id} | cache: family/members/events/albums/photos/notifications for the current family */
 let me = null;
 function emptyCache(){ return { family:null, members:[], events:[], albums:[], photos:[], notifications:[] }; }
@@ -985,6 +997,7 @@ function renderAuth(){
       <button class="btn btn-primary" onclick="A.nav('signup')">${icon('mail')} 회원가입</button>
       <div style="height:10px;"></div>
       <button class="btn btn-ghost" onclick="A.nav('login')">로그인</button>
+      ${renderInAppBrowserBanner()}
       ${renderInstallBanner()}
     </div>`;
   }
@@ -1158,6 +1171,16 @@ function renderInstallBanner(){
   return "";
 }
 
+function renderInAppBrowserBanner(){
+  if(!inAppBrowser || sessionStorage.getItem("famshare.inAppDismissed")==="1") return "";
+  return `
+  <div class="install-banner">
+    <div class="ib-icon">${icon('share')}</div>
+    <div class="ib-text"><b>${esc(inAppBrowser)} 브라우저를 쓰고 계세요</b>설치·알림 기능이 제한될 수 있어요. 오른쪽 위 메뉴에서 '다른 브라우저로 열기'를 선택해주세요</div>
+    <button class="ib-close" onclick="A.dismissInApp()">${icon('x')}</button>
+  </div>`;
+}
+
 function renderPushBanner(){
   if(!pushState.supported || pushState.dismissed) return "";
   if(pushState.permission === "granted" || pushState.permission === "denied") return "";
@@ -1177,6 +1200,7 @@ function renderHome(){
   const members = familyMembers();
 
   return `
+  ${renderInAppBrowserBanner()}
   ${renderInstallBanner()}
   ${renderPushBanner()}
   <div class="section-title">구성원 <a class="btn-text" style="padding:0;" onclick="A.nav('members')">전체보기</a></div>
@@ -1535,6 +1559,10 @@ const actions = {
   dismissPush(){
     pushState.dismissed = true;
     sessionStorage.setItem("famshare.pushDismissed", "1");
+    render();
+  },
+  dismissInApp(){
+    sessionStorage.setItem("famshare.inAppDismissed", "1");
     render();
   },
   async doSignup(e){
