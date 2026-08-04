@@ -794,7 +794,7 @@ async function refreshAll(){
 async function attachSignedUrls(){
   const paths = cache.photos.map(p=>p.storage_path).filter(Boolean);
   if(paths.length===0) return;
-  const { data } = await supabase.storage.from("photos").createSignedUrls(paths, 3600);
+  const { data } = await supabase.storage.from("photos").createSignedUrls(paths, 60 * 60 * 24 * 7); // 7 days
   if(data){
     data.forEach((d,i)=>{ if(cache.photos[i] && d.signedUrl) cache.photos[i].signedUrl = d.signedUrl; });
   }
@@ -1198,7 +1198,7 @@ function renderHome(){
 }
 
 function photoInner(p){
-  return p.signedUrl ? `<img src="${p.signedUrl}" alt="${esc(p.caption)}" loading="lazy">` : photoPh("_");
+  return p.signedUrl ? `<img src="${p.signedUrl}" alt="${esc(p.caption)}" loading="lazy" onerror="A.refreshPhotoUrl('${p.id}', this)">` : photoPh("_");
 }
 
 function eventItemHtml(e){
@@ -1469,6 +1469,17 @@ const actions = {
     installState.dismissed = true;
     sessionStorage.setItem("famshare.installDismissed", "1");
     render();
+  },
+  async refreshPhotoUrl(photoId, imgEl){
+    if(imgEl.dataset.retried) return; // avoid infinite retry loop if it keeps failing
+    imgEl.dataset.retried = "1";
+    const photo = getPhoto(photoId);
+    if(!photo || !photo.storage_path) return;
+    const { data } = await supabase.storage.from("photos").createSignedUrl(photo.storage_path, 60 * 60 * 24 * 7);
+    if(data && data.signedUrl){
+      photo.signedUrl = data.signedUrl;
+      imgEl.src = data.signedUrl;
+    }
   },
   showIosHelp(){ state.showIosHelp = true; render(); },
   hideIosHelp(){ state.showIosHelp = false; render(); },
