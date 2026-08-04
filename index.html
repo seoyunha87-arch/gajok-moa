@@ -1198,7 +1198,7 @@ function renderMembers(){
         <div class="avatar" style="background:${colorFor(m.name)}">${esc(m.name[0])}</div>
         <div style="flex:1;">
           <div class="mname">${esc(m.name)} ${m.id===me.id?'<span class="chip" style="margin-left:4px;">나</span>':''}</div>
-          <div class="mmeta">${esc(m.email)}</div>
+          <div class="mmeta">아이디: ${esc((m.email||"").split("@")[0])}</div>
         </div>
       </div>`).join('')}
   </div>
