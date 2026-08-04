@@ -640,6 +640,38 @@ if ("serviceWorker" in navigator) {
   });
 }
 
+/* ---------------- push notifications ---------------- */
+const VAPID_PUBLIC_KEY = "BFWz54JUZruKxHbGTHTYANjaKaJGmcT7Pw9zezpdLtLYKC9GvqrR6LmI0XpwxBHxDDMBIf-UxNJGRhx_-sZG0TY";
+const pushState = {
+  supported: "serviceWorker" in navigator && "PushManager" in window && window.isSecureContext,
+  permission: (typeof Notification !== "undefined") ? Notification.permission : "unsupported",
+  dismissed: sessionStorage.getItem("famshare.pushDismissed") === "1",
+};
+function urlBase64ToUint8Array(base64){
+  const padding = "=".repeat((4 - (base64.length % 4)) % 4);
+  const base64safe = (base64 + padding).replace(/-/g, "+").replace(/_/g, "/");
+  const raw = atob(base64safe);
+  return Uint8Array.from([...raw].map((c) => c.charCodeAt(0)));
+}
+async function subscribeToPush(){
+  const reg = await navigator.serviceWorker.ready;
+  let sub = await reg.pushManager.getSubscription();
+  if(!sub){
+    sub = await reg.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY),
+    });
+  }
+  const json = sub.toJSON();
+  await supabase.from("push_subscriptions").upsert({
+    user_id: me.id,
+    family_id: cache.family.id,
+    endpoint: json.endpoint,
+    p256dh: json.keys.p256dh,
+    auth: json.keys.auth,
+  }, { onConflict: "endpoint" });
+}
+
 /* ---------------- state ---------------- */
 let state = {
   screen: "loading",
@@ -1080,6 +1112,18 @@ function renderInstallBanner(){
   return "";
 }
 
+function renderPushBanner(){
+  if(!pushState.supported || pushState.dismissed) return "";
+  if(pushState.permission === "granted" || pushState.permission === "denied") return "";
+  return `
+  <div class="install-banner">
+    <div class="ib-icon">${icon('bell')}</div>
+    <div class="ib-text"><b>휴대폰 알림 받기</b>가족이 일정·사진을 올리면 바로 알려드려요</div>
+    <button onclick="A.enablePush()">허용</button>
+    <button class="ib-close" onclick="A.dismissPush()">${icon('x')}</button>
+  </div>`;
+}
+
 /* ---- HOME ---- */
 function renderHome(){
   const events = familyEvents().filter(e=>e.date>=todayStr()).sort((a,b)=>(a.date+a.time).localeCompare(b.date+b.time)).slice(0,3);
@@ -1088,6 +1132,7 @@ function renderHome(){
 
   return `
   ${renderInstallBanner()}
+  ${renderPushBanner()}
   <div class="section-title">구성원 <a class="btn-text" style="padding:0;" onclick="A.nav('members')">전체보기</a></div>
   <div style="display:flex;gap:10px;overflow-x:auto;padding-bottom:4px;">
     ${members.map(m=>`
@@ -1392,6 +1437,23 @@ const actions = {
   },
   showIosHelp(){ state.showIosHelp = true; render(); },
   hideIosHelp(){ state.showIosHelp = false; render(); },
+  async enablePush(){
+    try{
+      const perm = await Notification.requestPermission();
+      pushState.permission = perm;
+      if(perm !== "granted"){ render(); return; }
+      await subscribeToPush();
+      showToast("휴대폰 알림을 켰어요");
+    }catch(err){
+      showToast("알림 설정에 실패했어요");
+    }
+    render();
+  },
+  dismissPush(){
+    pushState.dismissed = true;
+    sessionStorage.setItem("famshare.pushDismissed", "1");
+    render();
+  },
   async doSignup(e){
     e.preventDefault();
     const f = e.target;

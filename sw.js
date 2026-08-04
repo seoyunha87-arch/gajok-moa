@@ -1,4 +1,4 @@
-const CACHE = "gajokmoa-v2";
+const CACHE = "gajokmoa-v3";
 const ASSETS = ["./", "./index.html", "./manifest.json", "./icon-192.png", "./icon-512.png"];
 
 self.addEventListener("install", (e) => {
@@ -46,6 +46,30 @@ self.addEventListener("fetch", (e) => {
         }
         return res;
       });
+    })
+  );
+});
+
+self.addEventListener("push", (e) => {
+  let data = { title: "가족모아", body: "새 소식이 있어요" };
+  try { if (e.data) data = { ...data, ...e.data.json() }; } catch (err) {}
+  e.waitUntil(
+    self.registration.showNotification(data.title, {
+      body: data.body,
+      icon: "./icon-192.png",
+      badge: "./icon-192.png",
+      data: { url: data.url || "./" },
+    })
+  );
+});
+
+self.addEventListener("notificationclick", (e) => {
+  e.notification.close();
+  const url = (e.notification.data && e.notification.data.url) || "./";
+  e.waitUntil(
+    clients.matchAll({ type: "window", includeUncontrolled: true }).then((list) => {
+      for (const c of list) { if ("focus" in c) return c.focus(); }
+      if (clients.openWindow) return clients.openWindow(url);
     })
   );
 });
