@@ -705,12 +705,41 @@ async function pushNotif(type, message){
   await supabase.from("notifications").insert({ family_id: cache.family.id, type, message });
 }
 
+/* ---------------- invite links (?invite=CODE) ---------------- */
+const PENDING_INVITE_KEY = "famshare.pendingInvite";
+function consumeUrlInviteCode(){
+  const params = new URLSearchParams(location.search);
+  const code = params.get("invite");
+  if(code){
+    sessionStorage.setItem(PENDING_INVITE_KEY, code.trim().toUpperCase());
+    params.delete("invite");
+    const clean = location.pathname + (params.toString() ? "?" + params.toString() : "") + location.hash;
+    history.replaceState(null, "", clean);
+  }
+  return sessionStorage.getItem(PENDING_INVITE_KEY);
+}
+async function tryJoinPendingInvite(){
+  const code = sessionStorage.getItem(PENDING_INVITE_KEY);
+  if(!code) return false;
+  const { data: family } = await supabase.from("families").select("*").eq("invite_code", code).maybeSingle();
+  if(!family) return false;
+  await supabase.from("profiles").update({ family_id: family.id }).eq("id", me.id);
+  me.family_id = family.id;
+  await loadFamily(family.id);
+  await pushNotif("member", `${me.name}님이 가족 공간에 참여했어요`);
+  await refreshAll();
+  sessionStorage.removeItem(PENDING_INVITE_KEY);
+  showToast(`${family.name}에 참여했어요`);
+  return true;
+}
+
 /* ---------------- data loading ---------------- */
 async function boot(){
+  const pendingCode = consumeUrlInviteCode();
   const { data } = await supabase.auth.getSession();
   const sessUser = data && data.session && data.session.user;
   if(sessUser){ await establishSession(sessUser); }
-  else { state.screen = "onboarding"; render(); }
+  else { state.screen = pendingCode ? "signup" : "onboarding"; render(); }
 
   supabase.auth.onAuthStateChange((event) => {
     if(event === "SIGNED_OUT"){
@@ -727,6 +756,8 @@ async function establishSession(authUser){
   state.stack = [];
   if(me.family_id){
     await loadFamily(me.family_id);
+    state.screen = "home"; state.tab = "home";
+  } else if(await tryJoinPendingInvite()){
     state.screen = "home"; state.tab = "home";
   } else {
     state.screen = "familyChoice";
@@ -1206,17 +1237,20 @@ function renderMembers(){
 }
 
 /* ---- INVITE ---- */
+function inviteLink(code){
+  return `https://seoyunha87-arch.github.io/gajok-moa/?invite=${code}`;
+}
 function renderInvite(){
   const f = currentFamily();
   return `
   <div class="invite-code-box">
     <div style="font-size:12.5px;font-weight:700;color:var(--ink-soft);">${esc(f.name)} 초대 코드</div>
     <div class="invite-code">${esc(f.invite_code)}</div>
-    <div class="helptext">이 코드를 가족에게 공유하면, 가입 후 코드를 입력해 바로 참여할 수 있어요</div>
+    <div class="helptext">이 링크를 가족에게 보내면, 누르는 것만으로 자동 참여돼요</div>
   </div>
-  ${navigator.share ? `<button class="btn btn-primary" onclick="A.shareCode()">${icon('share')} 가족에게 공유하기</button><div style="height:10px;"></div>` : ""}
-  <button class="btn btn-ghost" onclick="A.copyCode()">${icon('copy')} 코드 복사하기</button>
-  <div class="helptext" style="text-align:center;margin-top:16px;">가족이 이 앱에서 회원가입한 뒤, 이 코드로 '초대 코드로 참여'를 선택하면 바로 합류합니다.</div>
+  ${navigator.share ? `<button class="btn btn-primary" onclick="A.shareCode()">${icon('share')} 초대 링크 공유하기</button><div style="height:10px;"></div>` : ""}
+  <button class="btn btn-ghost" onclick="A.copyCode()">${icon('copy')} 초대 링크 복사하기</button>
+  <div class="helptext" style="text-align:center;margin-top:16px;">회원가입이 안 되어 있다면, 가입 화면으로 이동한 뒤 완료되는 즉시 자동으로 이 가족에 합류합니다.</div>
   `;
 }
 
@@ -1541,15 +1575,17 @@ const actions = {
     try{
       await navigator.share({
         title: "가족모아 초대",
-        text: `${f.name}에 초대할게요! 가족모아 앱에서 회원가입 후 초대 코드 [${f.invite_code}]를 입력해주세요.\nhttps://seoyunha87-arch.github.io/gajok-moa/`,
+        text: `${f.name}에 초대할게요! 아래 링크를 누르면 자동으로 참여돼요.`,
+        url: inviteLink(f.invite_code),
       });
     }catch(err){ /* user cancelled the share sheet - ignore */ }
   },
   copyCode(){
     const f = currentFamily();
+    const link = inviteLink(f.invite_code);
     if(navigator.clipboard && navigator.clipboard.writeText){
-      navigator.clipboard.writeText(f.invite_code)
-        .then(()=>showToast("초대 코드를 복사했어요"))
+      navigator.clipboard.writeText(link)
+        .then(()=>showToast("초대 링크를 복사했어요"))
         .catch(()=>showToast(`복사에 실패했어요 — 코드: ${f.invite_code}`));
     } else {
       showToast(`이 코드를 알려주세요: ${f.invite_code}`);
