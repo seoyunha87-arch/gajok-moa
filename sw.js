@@ -1,4 +1,4 @@
-const CACHE = "gajokmoa-v3";
+const CACHE = "gajokmoa-v4";
 const ASSETS = ["./", "./index.html", "./manifest.json", "./icon-192.png", "./icon-512.png"];
 
 self.addEventListener("install", (e) => {
@@ -21,8 +21,11 @@ self.addEventListener("fetch", (e) => {
   // network first so updates show up immediately; fall back to cache offline.
   const isAppShell = e.request.mode === "navigate" || /\.(html|js|json)$/.test(new URL(e.request.url).pathname);
   if (isAppShell) {
+    // cache:"no-store" bypasses GitHub Pages' CDN/HTTP cache too, not just this
+    // service worker's own cache - otherwise "network-first" can still return a
+    // stale response the CDN served within its max-age window.
     e.respondWith(
-      fetch(e.request)
+      fetch(e.request, { cache: "no-store" })
         .then((res) => {
           if (res && res.status === 200) {
             const copy = res.clone();
